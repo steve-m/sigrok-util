@@ -3,6 +3,7 @@
 ## This file is part of the sigrok-util project.
 ##
 ## Copyright (C) 2016-2018 Uwe Hermann <uwe@hermann-uwe.de>
+## Copyright (C) 2026 Steve Markgraf <steve@steve-m.de>
 ##
 ## This program is free software; you can redistribute it and/or modify
 ## it under the terms of the GNU General Public License as published by
@@ -27,13 +28,13 @@ PREFIXBASE=$HOME/sr_msys2
 BUILDBASE=./build
 
 # The $PREFIX subdir where the libsigrok Python bindings will be installed.
-PYBASE=lib/python2.7/site-packages
+PYBASE=lib/python3/site-packages
 
 # Edit this to control verbose build output.
 # V="V=1 VERBOSE=1"
 
 # Edit this to enable/disable/modify parallel compiles.
-PARALLEL="-j 2"
+PARALLEL="-j 8"
 
 # Edit this to enable/disable debug builds.
 DEBUG=0
@@ -45,15 +46,13 @@ DEBUG=0
 # Abort if the user runs the script in an "MSYS2 MSYS" shell.
 if [ $MSYSTEM = "MSYS" ]; then
 	echo "Building in an 'MSYS2 MSYS' shell will not work, aborting."
-	echo "Please use the 'MSYS2 MinGW 64-bit' (or 32-bit) shell."
+	echo "Please use the 'MSYS2 MinGW 64-bit' shell."
 	exit
 fi
 
-# The build target type: "i686" (32bit) or "x86_64" (64bit).
+# The build target type: "x86_64" or "arm64"
 # This is selected based on which MSYS2 shell is being used to do the build.
 TARGET=$MSYSTEM_CARCH
-
-VER_SIGROK_FIRMWARE_FX2LAFW=0.1.6
 
 WGET="wget -c --quiet"
 GIT_CLONE="git clone --depth=1"
@@ -61,11 +60,8 @@ GIT_CLONE="git clone --depth=1"
 REPO_BASE="git://sigrok.org"
 
 # Construct the build and install directory pathnames.
-if [ $TARGET = "i686" ]; then
-	SUFFIX="32"
-else
-	SUFFIX="64"
-fi
+SUFFIX="x86-64"
+
 if [ $DEBUG = 1 ]; then
 	# CFLAGS/CXXFLAGS contains "-g" per default for autotools projects.
 	BUILD_TYPE="Debug"
@@ -86,12 +82,16 @@ export PYTHONPATH=
 
 P="$PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
 C="$C --prefix=$PREFIX"
-L="--disable-shared --enable-static"
+L="--disable-static --enable-shared"
 
-# Path to Qt binaries (needed for cmake to find the Qt libs).
-PATH="/mingw32/qt5-static/bin:$PATH"
+MENV=""
+if [[ $MSYSTEM =~ "UCRT" ]]; then
+	MENV="ucrt-"
+elif [[ $MSYSTEM =~ "CLANG" ]]; then
+	MENV="clang-"
+fi
 
-W="mingw-w64-$TARGET"
+W="mingw-w64-$MENV$TARGET"
 
 mkdir -p $PYPATH
 
@@ -106,24 +106,16 @@ if [ "x$1" = "xprepare" ]; then
   # Update package list, install/update all requirements.
   pacman -Sy
   pacman -S \
-	autoconf automake autoconf-archive libtool make pkg-config wget patch \
+	$W-autotools libtool make pkg-config wget patch zip \
 	$W-toolchain $W-glib2 $W-glibmm $W-libusb $W-libftdi $W-check $W-boost \
-	$W-libzip $W-doxygen $W-python3 $W-python3-numpy $W-python3-gobject \
-	$W-python3-setuptools $W-swig $W-qt5-static $W-cmake $W-nsis \
-	$W-hidapi
+	$W-libzip $W-doxygen $W-python $W-python-numpy $W-python-gobject \
+	$W-python-setuptools $W-swig $W-cmake $W-nsis \
+	$W-qt6-base $W-qt6-tools $W-qt6-svg $W-autotools  \
+	$W-libpng $W-libwebp $W-hidapi $W-sdcc
   exit
 fi
 
 # -----------------------------------------------------------------------------
-
-# libusb
-$GIT_CLONE git://github.com/dickens/libusb -b event-abstraction-v4
-cd libusb
-./bootstrap.sh
-./configure $C $L
-make -j1 $V
-make install $V
-cd ..
 
 # libserialport
 $GIT_CLONE $REPO_BASE/libserialport
@@ -172,29 +164,30 @@ make install $V
 cd ../..
 
 # sigrok-firmware-fx2lafw
-$WGET http://sigrok.org/download/binary/sigrok-firmware-fx2lafw/sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW.tar.gz
-tar xfz sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW.tar.gz
-cd sigrok-firmware-fx2lafw-bin-$VER_SIGROK_FIRMWARE_FX2LAFW
-cp *.fw $PREFIX/share/sigrok-firmware/
+$GIT_CLONE $REPO_BASE/sigrok-firmware-fx2lafw
+cd sigrok-firmware-fx2lafw
+./autogen.sh
+./configure --prefix=$PREFIX
+make $PARALLEL $V
+make install $V
 cd ..
 
-# TODO: Doesn't build, libsigrokdecode linking errors.
-# # sigrok-cli
-# $GIT_CLONE $REPO_BASE/sigrok-cli
-# cd sigrok-cli
-# ./autogen.sh
-# mkdir build
-# cd build
-# PKG_CONFIG_PATH=$P ../configure $C $L
-# $SB make $PARALLEL $V
-# make install $V
+# sigrok-cli
+$GIT_CLONE $REPO_BASE/sigrok-cli
+cd sigrok-cli
+./autogen.sh
+mkdir build
+cd build
+PKG_CONFIG_PATH=$P ../configure $C $L
+$SB make $PARALLEL $V
+make install $V
 # # makensis -DHOME=$HOME contrib/sigrok-cli_cross.nsi # TODO
-# cd ../..
+cd ../..
 
-# TODO: Doesn't build, various linking errors.
 # PulseView
 $GIT_CLONE $REPO_BASE/pulseview
 cd pulseview
+git apply ../../0001-Allow-building-with-MSYS2-use-dynamic-libs.patch
 mkdir build
 cd build
 PKG_CONFIG_PATH=$P $SB cmake \
@@ -209,3 +202,26 @@ make install $V
 # $SB make test $V # TODO
 # makensis -DHOME=$HOME contrib/pulseview_cross.nsi # TODO
 cd ../..
+
+# Install required libraries
+pushd $PREFIX/bin
+ldd sigrok-cli.exe | grep $MSYSTEM_PREFIX | awk '{print $3}' | xargs -i cp {} .
+ldd pulseview.exe | grep $MSYSTEM_PREFIX | awk '{print $3}' | xargs -i cp {} .
+cp $MSYSTEM_PREFIX/bin/Qt6Svg.dll .
+cp -r $MSYSTEM_PREFIX/share/qt6/plugins/platforms .
+cp -r $MSYSTEM_PREFIX/share/qt6/plugins/styles .
+cp -r $MSYSTEM_PREFIX/share/qt6/plugins/iconengines .
+
+# Copy Python related files
+mkdir -p lib
+cp -r $MSYSTEM_PREFIX/lib/python3* lib/
+rm -rf lib/python*/test
+find lib/ -path '*/__pycache__*' -delete
+
+mkdir -p share
+cp -r ../share/libsigrokdecode share/
+cp -r ../share/sigrok-firmware share/
+
+zip -r ../sigrok-msys2-release.zip *
+
+popd
