@@ -106,16 +106,21 @@ echo "=== PREFIX=$PREFIX BUILDDIR=$BUILDDIR ==="
 
 # -----------------------------------------------------------------------------
 
-if [ "x$1" = "xprepare" ]; then
-  # Update package list, install/update all requirements.
-  pacman --noconfirm -Suy
-  pacman --noconfirm -S \
+# Update package list, install/update all requirements.
+echo "=== Updating packages ==="
+pacman --noconfirm -Suy
+
+echo "=== Installing dependencies ==="
+pacman --noconfirm -S \
 	git $W-autotools libtool make pkg-config wget patch zip \
 	$W-toolchain $W-glib2 $W-glibmm $W-libusb $W-libftdi $W-check $W-boost \
 	$W-libzip $W-doxygen $W-python $W-python-numpy $W-python-gobject \
 	$W-python-setuptools $W-swig $W-cmake $W-nsis \
 	$W-qt6-base $W-qt6-tools $W-qt6-svg $W-autotools \
 	$W-libpng $W-libwebp $W-hidapi $W-sdcc
+
+# If 'prepare' was given, only install dependencies and exit.
+if [ "x$1" = "xprepare" ]; then
   exit
 fi
 
