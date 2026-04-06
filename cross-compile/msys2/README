@@ -2,61 +2,68 @@
 README
 -------------------------------------------------------------------------------
 
-This is a small script for compiling sigrok and its dependencies natively
-on MSYS2/Windows systems.
-
-
-Status
-------
-
-NOT fully working! This is work in progress.
+Scripts for building sigrok and its dependencies natively on MSYS2, targeting
+the UCRT64 (GCC) and CLANG64 (Clang/LLVM) environments.
 
 
 Requirements
 ------------
 
-See below for instructions on how to install the requirements.
+ - Docker (for sigrok-msys2-docker)
+ - or a native MSYS2 installation (for sigrok-native-msys2)
 
 
-Toolchain setup
----------------
+Building with Docker (recommended for CI)
+------------------------------------------
 
-First, you need to install MSYS2 (use the 64bit installer, msys2-x86_64-*.exe):
+The sigrok-msys2-docker script runs the entire build inside the MSYS2 Docker
+container (ghcr.io/msys2/msys2-docker-experimental) on a Linux host.
+No Windows installation is required.
 
-  http://www.msys2.org
-  https://github.com/msys2/msys2/wiki/MSYS2-installation
+  $ ./sigrok-msys2-docker UCRT64     # Build with GCC (UCRT64)
+  $ ./sigrok-msys2-docker CLANG64    # Build with Clang/LLVM (CLANG64)
 
-Then, perform the MSYS2 update procedure as per the documentation above.
+Output is placed in the output/ subdirectory:
+  - sigrok-msys2-release.zip  (portable release archive)
+  - sigrok-installer.exe      (NSIS Windows installer)
 
-  $ pacman -Syu # If needed, close MSYS2, run it again from Start menu.
-  $ pacman -Su
 
-Now close the shell and start an "MSYS2 MinGW 64-bit" or "MSYS2 MinGW 32-bit"
-shell (do NOT use the "MSYS2 MSYS" shell). All other steps will always have to
-be performed in an "MSYS2 MinGW 62-bit" or "MSYS2 MinGW 32-bit" shell.
+Building natively on MSYS2
+--------------------------
 
-Install the MSYS2 git package there:
+Start an "MSYS2 UCRT64" or "MSYS2 CLANG64" shell. Do NOT use the "MSYS2 MSYS"
+shell.
 
-  $ pacman -Sy
-  $ pacman -S git
-
-This is all that is needed to bootstrap your MSYS2 system. You can now use
-our sigrok-native-msys2 script to install all other required MSYS2 packages:
+First, install all required packages:
 
   $ ./sigrok-native-msys2 prepare
 
+Then build:
 
-Building
---------
+  $ ./sigrok-native-msys2
 
- $ ./sigrok-native-msys2
 
-Per default it will install the compiled packages in:
+Files
+-----
 
- $HOME/sr_msys2_release_32
+  sigrok-native-msys2
+    The build script that runs inside MSYS2. Handles package installation,
+    building all sigrok components, gathering DLLs, and creating the NSIS
+    installer.
 
-This depends on whether you're running the build in a "MSYS2 MinGW 64-bit" or
-"MSYS2 MinGW 32-bit" shell, and whether you enabled debug builds or not.
+  sigrok-msys2-docker
+    Docker wrapper that runs sigrok-native-msys2 inside the MSYS2 Docker
+    container on a Linux host.
 
-Please edit the script if you want to change any settings.
+  sigrok-installer.nsi
+    NSIS installer script for the combined PulseView + sigrok-cli installer.
 
+  0001-Allow-building-with-MSYS2-use-dynamic-libs.patch
+    Patch for PulseView to use dynamic linking on MSYS2.
+
+  0002-libsigrok-COFF-section-ordering-and-dllexport.patch
+    Patch for libsigrok to support both GCC and Clang/lld on Windows:
+    - Uses COFF section $-suffix ordering for the driver list, avoiding
+      the ld -r partial link step (which lld does not support for COFF).
+    - Adds __declspec(dllexport) for proper symbol visibility with Clang.
+    - Removes SR_API from template class (incompatible with dllexport).
