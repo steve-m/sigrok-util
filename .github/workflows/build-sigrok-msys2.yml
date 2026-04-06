@@ -1,0 +1,33 @@
+name: Build sigrok for Windows (MSYS2 Docker)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        msystem: [UCRT64, CLANG64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sigrok (${{ matrix.msystem }})
+        run: cross-compile/msys2/sigrok-msys2-docker ${{ matrix.msystem }}
+
+      - name: Upload release zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigrok-msys2-release-${{ matrix.msystem }}
+          path: cross-compile/msys2/output/sigrok-msys2-release.zip
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigrok-installer-${{ matrix.msystem }}
+          path: cross-compile/msys2/output/sigrok-installer.exe

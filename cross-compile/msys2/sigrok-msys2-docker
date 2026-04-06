@@ -1,0 +1,85 @@
+#!/bin/bash
+##
+## This file is part of the sigrok-util project.
+##
+## Copyright (C) 2026 Steve Markgraf <steve@steve-m.de>
+##
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+##
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with this program; if not, see <http://www.gnu.org/licenses/>.
+##
+
+#
+# Build sigrok for Windows using the MSYS2 Docker container on Linux.
+# This runs the entire MSYS2 toolchain under Wine, eliminating the need
+# for a native Windows build host.
+#
+# Uses docker create + docker cp + docker start to inject the build script
+# and patch files, then extracts the release zip and NSIS installer.
+#
+# Usage: ./sigrok-msys2-docker [UCRT64|CLANG64]
+#   Default: UCRT64
+#
+
+set -e
+
+MSYSTEM="${1:-UCRT64}"
+
+case "$MSYSTEM" in
+	UCRT64|CLANG64) ;;
+	*) echo "Usage: $0 [UCRT64|CLANG64]"; exit 1 ;;
+esac
+
+echo "=== Building sigrok with MSYSTEM=$MSYSTEM ==="
+
+CONTAINER_NAME="sigrok-build-${MSYSTEM,,}-$$"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUTPUT_DIR="$SCRIPT_DIR/output"
+MSYS2_HOME="/root/.wine/drive_c/msys64/home/root"
+
+mkdir -p "$OUTPUT_DIR"
+
+cleanup() {
+	echo "=== Cleaning up container ==="
+	docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo "=== Creating MSYS2 Docker container (MSYSTEM=$MSYSTEM) ==="
+docker create --name "$CONTAINER_NAME" --cap-add SYS_PTRACE \
+	-e MSYSTEM="$MSYSTEM" \
+	ghcr.io/msys2/msys2-docker-experimental \
+	msys2 '~/build-sigrok.sh'
+
+echo "=== Copying build script, patches, and NSIS files into container ==="
+docker cp "$SCRIPT_DIR/sigrok-native-msys2" \
+	"$CONTAINER_NAME:$MSYS2_HOME/build-sigrok.sh"
+docker cp "$SCRIPT_DIR/0001-Allow-building-with-MSYS2-use-dynamic-libs.patch" \
+	"$CONTAINER_NAME:$MSYS2_HOME/pulseview.patch"
+docker cp "$SCRIPT_DIR/0002-libsigrok-COFF-section-ordering-and-dllexport.patch" \
+	"$CONTAINER_NAME:$MSYS2_HOME/libsigrok-coff-section-ordering.patch"
+docker cp "$SCRIPT_DIR/sigrok-installer.nsi" \
+	"$CONTAINER_NAME:$MSYS2_HOME/sigrok-installer.nsi"
+docker cp "$SCRIPT_DIR/../mingw/FileAssociation.nsh" \
+	"$CONTAINER_NAME:$MSYS2_HOME/FileAssociation.nsh"
+
+echo "=== Starting build (this will take a while) ==="
+docker start -a "$CONTAINER_NAME"
+
+echo "=== Copying artifacts from container ==="
+docker cp "$CONTAINER_NAME:$MSYS2_HOME/sr_msys2_release_x86-64/sigrok-msys2-release.zip" \
+	"$OUTPUT_DIR/"
+docker cp "$CONTAINER_NAME:$MSYS2_HOME/sigrok-installer.exe" \
+	"$OUTPUT_DIR/"
+
+echo "=== Done! Output in: $OUTPUT_DIR/ ==="
+ls -lh "$OUTPUT_DIR/"
